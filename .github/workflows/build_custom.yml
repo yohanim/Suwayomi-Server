@@ -1,0 +1,67 @@
+name: Custom build
+
+on:
+  push:
+    branches:
+      - custom/build
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Jar
+    # Only on the fork: upstream has no use for this branch.
+    if: github.repository != 'Suwayomi/Suwayomi-Server'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v7
+        with:
+          # The jar version is derived from the commit count.
+          fetch-depth: 0
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v5
+
+      - name: Set up JDK
+        uses: actions/setup-java@v6
+        with:
+          java-version: 25
+          distribution: 'zulu'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Copy CI gradle.properties
+        run: |
+          mkdir -p ~/.gradle
+          cp .github/runner-files/ci-gradle.properties ~/.gradle/gradle.properties
+
+      - name: Build Jar
+        env:
+          ProductBuildType: "Preview"
+        run: ./gradlew :server:shadowJar --stacktrace
+
+      - name: Upload Jar
+        uses: actions/upload-artifact@v7
+        with:
+          name: jar
+          path: server/build/*.jar
+          if-no-files-found: error
+
+      - name: Publish rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete custom-build --cleanup-tag --yes || true
+          gh release create custom-build server/build/*.jar \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Custom build ($(git rev-parse --short HEAD))" \
+            --notes "Built from \`custom/build\` at $GITHUB_SHA."

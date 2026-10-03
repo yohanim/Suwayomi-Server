@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - (**GraphQL**) Skip the count and first/last lookups of paginated lists when `totalCount` and `pageInfo.hasNextPage`/`hasPreviousPage` aren't selected
 - (**GraphQL**) Optimize chapter data loaders using SQL window functions instead of in-memory grouping
+- (**GraphQL**) Count the nodes of list fields (a manga's chapters, categories and track records, a category's or a source's manga, a tracker's track records, an extension store's extensions) in SQL when `totalCount` is their only selection
 
 ### Fixed
 - 

@@ -8,11 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - (**API**) Add User Accounts
-- (**Database**) Add indexes on ChapterTable and PageTable for faster queries
+- (**Database**) Add indexes on ChapterTable and ChapterUserTable for faster queries
 
 ### Changed
+- (**GraphQL**) Find the chapter of each chapter-per-manga data loader in SQL, through the per-manga chapter indexes, instead of grouping in memory
+- (**GraphQL**) Write the ids of a data loader batch into the SQL instead of binding them one by one, which H2 checks row by row
 - (**GraphQL**) Skip the count and first/last lookups of paginated lists when `totalCount` and `pageInfo.hasNextPage`/`hasPreviousPage` aren't selected
-- (**GraphQL**) Optimize chapter data loaders using SQL window functions instead of in-memory grouping
 - (**GraphQL**) Count the nodes of list fields (a manga's chapters, categories and track records, a category's or a source's manga, a tracker's track records, an extension store's extensions) in SQL when `totalCount` is their only selection
 - (**Updates**) Index chapters by fetch time so the updates list no longer sorts every chapter of the library for each page
 

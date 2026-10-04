@@ -21,7 +21,6 @@ import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.greaterEq
-import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.intLiteral
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.or
@@ -31,11 +30,13 @@ import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import suwayomi.tachidesk.graphql.server.getAttribute
 import suwayomi.tachidesk.graphql.server.primitives.firstRowPerPartition
+import suwayomi.tachidesk.graphql.server.primitives.inIds
 import suwayomi.tachidesk.graphql.types.ChapterNodeList
 import suwayomi.tachidesk.graphql.types.ChapterNodeList.Companion.toNodeList
 import suwayomi.tachidesk.graphql.types.ChapterType
 import suwayomi.tachidesk.manga.model.table.ChapterTable
 import suwayomi.tachidesk.manga.model.table.ChapterUserTable
+import suwayomi.tachidesk.manga.model.table.MangaTable
 import suwayomi.tachidesk.manga.model.table.getWithUserData
 import suwayomi.tachidesk.server.JavalinSetup
 import suwayomi.tachidesk.server.JavalinSetup.future
@@ -54,7 +55,7 @@ class ChapterDataLoader : KotlinDataLoader<Int, ChapterType> {
                         ChapterTable
                             .getWithUserData(userId)
                             .selectAll()
-                            .where { ChapterTable.id inList ids }
+                            .where { ChapterTable.id inIds ids }
                             .map { ChapterType(it) }
                             .associateBy { it.id }
                     ids.map { chapters[it] }
@@ -76,7 +77,7 @@ class ChaptersForMangaDataLoader : KotlinDataLoader<Int, ChapterNodeList> {
                         ChapterTable
                             .getWithUserData(userId)
                             .selectAll()
-                            .where { ChapterTable.manga inList ids }
+                            .where { ChapterTable.manga inIds ids }
                             .map { ChapterType(it) }
                             .groupBy { it.mangaId }
                     ids.map { (chaptersByMangaId[it] ?: emptyList()).toNodeList() }
@@ -150,7 +151,7 @@ class ChapterFlagCountForMangaDataLoader : KotlinDataLoader<Int, MangaChapterSta
                                 downloadCount,
                                 bookmarkCount,
                             ).where {
-                                ChapterTable.manga inList ids
+                                ChapterTable.manga inIds ids
                             }.groupBy(ChapterTable.manga)
                             .associate {
                                 val mangaId = it[ChapterTable.manga].value
@@ -187,7 +188,7 @@ class HasDuplicateChaptersForMangaDataLoader : KotlinDataLoader<Int, Boolean> {
                         ChapterTable
                             .select(ChapterTable.manga, ChapterTable.chapter_number, ChapterTable.chapter_number.count())
                             .where {
-                                (ChapterTable.manga inList ids) and
+                                (ChapterTable.manga inIds ids) and
                                     (ChapterTable.chapter_number greaterEq 0f)
                             }.groupBy(ChapterTable.manga, ChapterTable.chapter_number)
                             .having { ChapterTable.chapter_number.count() greater 1 }
@@ -260,6 +261,7 @@ class LatestFetchedChapterForMangaDataLoader : KotlinDataLoader<Int, ChapterType
                             mangaIds = ids,
                             userId = userId,
                             orderBy = listOf(ChapterTable.fetchedAt to SortOrder.DESC, ChapterTable.sourceOrder to SortOrder.DESC),
+                            rankOnUserData = false,
                         )
                     ids.map { chaptersByMangaId[it] }
                 }
@@ -281,6 +283,7 @@ class LatestUploadedChapterForMangaDataLoader : KotlinDataLoader<Int, ChapterTyp
                             mangaIds = ids,
                             userId = userId,
                             orderBy = listOf(ChapterTable.date_upload to SortOrder.DESC, ChapterTable.sourceOrder to SortOrder.DESC),
+                            rankOnUserData = false,
                         )
                     ids.map { chaptersByMangaId[it] }
                 }
@@ -329,6 +332,7 @@ class HighestNumberedChapterForMangaDataLoader : KotlinDataLoader<Int, ChapterTy
                                     ChapterTable.chapter_number to SortOrder.DESC_NULLS_LAST,
                                     ChapterTable.sourceOrder to SortOrder.DESC,
                                 ),
+                            rankOnUserData = false,
                         )
                     ids.map { chaptersByMangaId[it] }
                 }
@@ -339,22 +343,27 @@ class HighestNumberedChapterForMangaDataLoader : KotlinDataLoader<Int, ChapterTy
 /**
  * For each manga in [mangaIds], its first chapter by [orderBy] among those matching [filter], with
  * [userId]'s chapter data. Shared by the chapter-per-manga data loaders below.
+ *
+ * [rankOnUserData] is false when [orderBy] and [filter] only read [ChapterTable]: the first chapters
+ * are then found without the user data join, which lets the database read the chapter index in order.
  */
 internal fun firstChapterPerManga(
     mangaIds: List<Int>,
     userId: Int,
     orderBy: List<Pair<Expression<*>, SortOrder>>,
     filter: Op<Boolean>? = null,
+    rankOnUserData: Boolean = true,
 ): Map<Int, ChapterType> {
     if (mangaIds.isEmpty()) return emptyMap()
 
-    val inMangas = ChapterTable.manga inList mangaIds
-    return ChapterTable
-        .getWithUserData(userId)
+    val chaptersWithUserData = ChapterTable.getWithUserData(userId)
+    return chaptersWithUserData
         .firstRowPerPartition(
+            keys = MangaTable.select(MangaTable.id).where { MangaTable.id inIds mangaIds },
             partitionBy = ChapterTable.manga,
             idColumn = ChapterTable.id,
             orderBy = orderBy,
-            where = if (filter == null) inMangas else inMangas and filter,
+            where = filter,
+            rankedOn = if (rankOnUserData) chaptersWithUserData else ChapterTable,
         ).associate { it[ChapterTable.manga].value to ChapterType(it) }
 }

@@ -185,7 +185,9 @@ fun databaseUp(givenDb: Database? = null) {
             }
         }
         val migrations = loadMigrationsFrom("suwayomi.tachidesk.server.database.migration", ServerConfig::class.java)
+        val droppedCustomRows = dropCustomBuildMigrationRows()
         runMigrations(migrations)
+        if (droppedCustomRows) logMissingM0067Indexes()
     } catch (e: Exception) {
         logger.error(e) { "Error up-to-database migration" }
         shutdownApp(ExitCode.DbMigrationFailure)

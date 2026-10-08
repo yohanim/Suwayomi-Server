@@ -11,7 +11,9 @@ import eu.kanade.tachiyomi.source.local.LocalSource
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.online.HttpSource
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
 import libcore.net.MimeUtils
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
@@ -25,6 +27,7 @@ import suwayomi.tachidesk.manga.impl.util.source.GetSource.getSourceOrNull
 import suwayomi.tachidesk.manga.impl.util.storage.ImageResponse.getImageResponse
 import suwayomi.tachidesk.manga.impl.util.storage.ImageUtil
 import suwayomi.tachidesk.manga.impl.util.storage.PageCacheCoordinator
+import suwayomi.tachidesk.manga.impl.util.storage.TallImageSplitter
 import suwayomi.tachidesk.manga.model.table.ChapterTable
 import suwayomi.tachidesk.manga.model.table.MangaTable
 import suwayomi.tachidesk.manga.model.table.PageTable
@@ -197,7 +200,7 @@ object Page {
                 progressFlow = progressFlow,
             )
 
-        // Lock again, the fetch above released it: a live read must not see a half-converted page
+        // Lock again, the fetch above released it: a live read must not see a half-converted or half-split page
         val cacheSaveDir = getChapterCachePath(mangaId, chapterId)
         PageCacheCoordinator.withPageLock(cacheSaveDir, fileName) {
             val conversions = serverConfig.downloadConversions.value
@@ -248,6 +251,13 @@ object Page {
                     }
                 } catch (e: Exception) {
                     logger.warn(e) { "Error while post-processing image" }
+                }
+            }
+
+            if (serverConfig.splitTallImages.value) {
+                // Decoding and encoding every part of a long strip is slow, blocking work
+                withContext(Dispatchers.IO) {
+                    TallImageSplitter.splitIfNeeded(downloadCacheFolder, fileName)
                 }
             }
 

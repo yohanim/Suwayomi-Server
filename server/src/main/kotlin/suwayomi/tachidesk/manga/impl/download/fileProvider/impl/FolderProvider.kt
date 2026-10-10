@@ -1,7 +1,5 @@
 package suwayomi.tachidesk.manga.impl.download.fileProvider.impl
 
-import eu.kanade.tachiyomi.util.lang.launchIO
-import io.github.oshai.kotlinlogging.KotlinLogging
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 import org.jetbrains.exposed.v1.core.eq
@@ -15,18 +13,15 @@ import suwayomi.tachidesk.manga.impl.util.storage.FileDeletionHelper
 import suwayomi.tachidesk.manga.model.table.ChapterUserTable
 import suwayomi.tachidesk.server.ApplicationDirs
 import uy.kohesive.injekt.injectLazy
+import java.io.BufferedOutputStream
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
-import java.io.IOException
 import java.io.InputStream
-import java.io.OutputStream
-import java.io.PipedInputStream
-import java.io.PipedOutputStream
-import java.util.zip.CRC32
-import java.util.zip.CheckedInputStream
+import java.util.zip.Deflater
 
 private val applicationDirs: ApplicationDirs by injectLazy()
-private val logger = KotlinLogging.logger {}
 
 /*
 * Provides downloaded files when pages were downloaded into folders
@@ -82,120 +77,41 @@ class FolderProvider(
         return chapterDirDeleted
     }
 
-    private suspend fun archiveFiles(): List<File>? =
-        File(getChapterDownloadPath(mangaId, chapterId))
-            .listFiles()
-            ?.filter { it.isFile }
-            ?.sortedBy { it.name }
-
     override suspend fun getAsArchiveStream(): Pair<InputStream, Long> {
-        val files = archiveFiles()
+        val chapterDir = File(getChapterDownloadPath(mangaId, chapterId))
 
-        if (files.isNullOrEmpty()) {
+        if (!chapterDir.exists() || !chapterDir.isDirectory || chapterDir.listFiles().isNullOrEmpty()) {
             throw IllegalArgumentException("Invalid folder to create CBZ for chapter ID: $chapterId")
         }
 
-        return StoredZipInputStream(files, chapterId) to storedZipSize(files)
-    }
+        val byteArrayOutputStream = ByteArrayOutputStream()
+        ZipArchiveOutputStream(BufferedOutputStream(byteArrayOutputStream)).use { zipOutputStream ->
+            zipOutputStream.setMethod(ZipArchiveOutputStream.DEFLATED)
+            zipOutputStream.setLevel(Deflater.DEFAULT_COMPRESSION)
 
-    /** Writes the zip on another thread as it's read, so it's never held in memory */
-    internal class StoredZipInputStream(
-        private val files: List<File>,
-        private val chapterId: Int,
-    ) : InputStream() {
-        private val pipe = PipedInputStream(PIPE_BUFFER_SIZE)
-        private var started = false
-
-        // started on the first read so a stream that is never read doesn't leave a writer blocked on the pipe
-        private fun start() {
-            if (started) return
-            started = true
-            val outputStream = PipedOutputStream(pipe)
-            launchIO {
-                try {
-                    writeStoredZip(files, outputStream)
-                } catch (e: IOException) {
-                    // the client usually closed the connection
-                    logger.debug(e) { "Stopped writing the CBZ of chapter $chapterId" }
+            chapterDir
+                .listFiles()
+                ?.filter { it.isFile }
+                ?.sortedBy { it.name }
+                ?.forEach { imageFile ->
+                    FileInputStream(imageFile).use { fileInputStream ->
+                        val zipEntry = ZipArchiveEntry(imageFile.name)
+                        zipEntry.time = 0L
+                        zipOutputStream.putArchiveEntry(zipEntry)
+                        fileInputStream.copyTo(zipOutputStream)
+                        zipOutputStream.closeArchiveEntry()
+                    }
                 }
-            }
         }
 
-        override fun read(): Int {
-            start()
-            return pipe.read()
-        }
-
-        override fun read(
-            b: ByteArray,
-            off: Int,
-            len: Int,
-        ): Int {
-            start()
-            return pipe.read(b, off, len)
-        }
-
-        override fun available(): Int = pipe.available()
-
-        override fun close() = pipe.close()
+        val zipData = byteArrayOutputStream.toByteArray()
+        return ByteArrayInputStream(zipData) to zipData.size.toLong()
     }
 
-    override suspend fun getArchiveSize(): Long = archiveFiles()?.let(::storedZipSize) ?: 0L
-
-    companion object {
-        private const val PIPE_BUFFER_SIZE = 64 * 1024
-
-        /** Pages are already compressed images, so they are stored as is */
-        internal fun writeStoredZip(
-            files: List<File>,
-            outputStream: OutputStream,
-            withContent: Boolean = true,
-        ) {
-            ZipArchiveOutputStream(outputStream).use { zipOutputStream ->
-                zipOutputStream.setMethod(ZipArchiveOutputStream.STORED)
-
-                files.forEach { file ->
-                    val zipEntry = ZipArchiveEntry(file.name)
-                    zipEntry.method = ZipArchiveOutputStream.STORED
-                    zipEntry.time = 0L
-                    // a stored entry needs its size and crc before its content
-                    zipEntry.size = if (withContent) file.length() else 0L
-                    zipEntry.crc = if (withContent) crc32(file) else 0L
-                    zipOutputStream.putArchiveEntry(zipEntry)
-                    if (withContent) file.inputStream().use { it.copyTo(zipOutputStream) }
-                    zipOutputStream.closeArchiveEntry()
-                }
-            }
-        }
-
-        /** The zip headers don't depend on the entries' content, so only they are written */
-        internal fun storedZipSize(files: List<File>): Long {
-            val headers = CountingOutputStream()
-            writeStoredZip(files, headers, withContent = false)
-            return headers.count + files.sumOf { it.length() }
-        }
-
-        private fun crc32(file: File): Long =
-            CheckedInputStream(file.inputStream(), CRC32()).use {
-                it.copyTo(OutputStream.nullOutputStream())
-                it.checksum.value
-            }
-    }
-
-    private class CountingOutputStream : OutputStream() {
-        var count = 0L
-            private set
-
-        override fun write(b: Int) {
-            count++
-        }
-
-        override fun write(
-            b: ByteArray,
-            off: Int,
-            len: Int,
-        ) {
-            count += len
-        }
+    override suspend fun getArchiveSize(): Long {
+        val chapterDir = File(getChapterDownloadPath(mangaId, chapterId))
+        if (!chapterDir.exists() || !chapterDir.isDirectory) return 0L
+        // Approximation: actual CBZ size is slightly larger due to ZIP metadata, but sufficient for Content-Length header.
+        return chapterDir.listFiles()?.filter { it.isFile }?.sumOf { it.length() } ?: 0L
     }
 }

@@ -18,6 +18,7 @@ object MemoryReport {
     private val interval = 1.hours
 
     fun start() {
+        logProcesses()
         log("startup")
         fixedRateTimer("memory-report", daemon = true, initialDelay = interval.inWholeMilliseconds, period = interval.inWholeMilliseconds) {
             log("periodic")
@@ -28,6 +29,43 @@ object MemoryReport {
                 log("shutdown")
             },
         )
+    }
+
+    // shows where a container stop signal gets lost: process groups, ignored/caught signal masks and tini's settings
+    private fun logProcesses() {
+        try {
+            val processes =
+                File("/proc")
+                    .listFiles { file -> file.name.all(Char::isDigit) }
+                    .orEmpty()
+                    .sortedBy { it.name.toInt() }
+                    .mapNotNull { dir ->
+                        runCatching {
+                            // pid (comm) state ppid pgrp ...
+                            val stat = File(dir, "stat").readText().substringAfterLast(") ").split(' ')
+                            val status = File(dir, "status").readLines()
+
+                            fun field(name: String) = status.firstOrNull { it.startsWith("$name:") }?.substringAfter(':')?.trim()
+                            val cmd =
+                                File(dir, "cmdline")
+                                    .readText()
+                                    .replace('\u0000', ' ')
+                                    .trim()
+                                    .take(120)
+                            "pid=${dir.name} ppid=${stat[1]} pgrp=${stat[2]} sigIgn=${field("SigIgn")} " +
+                                "sigCgt=${field("SigCgt")} sigBlk=${field("SigBlk")} cmd=$cmd"
+                        }.getOrNull()
+                    }
+            val tiniEnv =
+                runCatching {
+                    File("/proc/1/environ").readText().split('\u0000').filter { it.startsWith("TINI_") }
+                }.getOrElse { listOf("unreadable: ${it.message}") }
+            logger.info {
+                "Processes (self=${ProcessHandle.current().pid()}, PID 1 TINI_ env=$tiniEnv)\n${processes.joinToString("\n")}"
+            }
+        } catch (e: Exception) {
+            logger.warn(e) { "Process report failed" }
+        }
     }
 
     private fun log(reason: String) {

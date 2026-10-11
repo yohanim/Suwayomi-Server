@@ -26,6 +26,16 @@ object MemoryReport {
         Runtime.getRuntime().addShutdownHook(
             thread(start = false) {
                 logger.info { "Shutdown hook started" }
+                // the JVM halts once every hook is done, so this only logs when a hook is stuck
+                thread(isDaemon = true, name = "shutdown-watchdog") {
+                    Thread.sleep(3_000)
+                    logger.warn {
+                        "Shutdown still running after 3s, thread dump:\n" +
+                            Thread.getAllStackTraces().entries.joinToString("\n\n") { (thread, stack) ->
+                                "\"${thread.name}\" ${thread.state}\n" + stack.joinToString("\n") { "    at $it" }
+                            }
+                    }
+                }
                 log("shutdown")
             },
         )

@@ -59,6 +59,7 @@ import suwayomi.tachidesk.server.util.AppMutex.handleAppMutex
 import suwayomi.tachidesk.server.util.CEFManager
 import suwayomi.tachidesk.server.util.ConfigTypeRegistration
 import suwayomi.tachidesk.server.util.ExitCode
+import suwayomi.tachidesk.server.util.MemoryReport
 import suwayomi.tachidesk.server.util.SystemTray
 import suwayomi.tachidesk.server.util.shutdownApp
 import uy.kohesive.injekt.Injekt
@@ -484,6 +485,8 @@ fun applicationSetup() {
     GlobalScope.launch {
         CEFManager.init()
     }
+
+    MemoryReport.start()
 
     serverConfig.subscribeTo(
         serverConfig.extensionStores,

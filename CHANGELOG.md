@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - (**GraphQL**) Find the chapters of the chapter-per-manga data loaders in SQL instead of in memory
 - (**GraphQL**) Write data loader ids into the SQL instead of binding them
 - (**WebView**) Start CEF the first time a webview needs it instead of at startup
+- (**Downloads**) Build the CBZ of a folder download in a temporary file instead of in memory
 
 ### Fixed
 - (**Tracker**) Fix the possibility of attempting to insert multiple track searches

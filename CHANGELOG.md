@@ -33,6 +33,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - (**Downloader**) Convert the pages a live read already cached when downloading a chapter
 - (**Downloader**) Fix live reads and downloads of a chapter racing on the page cache
 - (**Downloads**) Skip chapters that no longer exist when enqueuing downloads instead of failing the whole request
+- (**WebView**) Fix the server not shutting down on a termination signal once the WebView started
 
 ### Deprecated
 - (**Downloads/Updates/API**) Remove `maxUpdates` `download` and `update` subscription input as it is not needed anymore due to subscriptions now supporting data loader batching

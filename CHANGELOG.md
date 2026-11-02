@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - (**GraphQL**) Write data loader ids into the SQL instead of binding them
 - (**Updates**) Index chapters by fetch time for the updates list
 - (**WebView**) Start CEF the first time a webview needs it instead of at startup
+- (**Downloads**) Build the CBZ of a folder download in a temporary file instead of in memory
 
 ### Fixed
 - (**API**) Answer 424 instead of 500 when a source fails

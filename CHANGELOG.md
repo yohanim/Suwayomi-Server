@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - (**Extension/Android**) Implement android.net.Network*
 - (**System**) Support ppc64 and s390x architectures
 - (**Tracker**) Add MangaBaka tracker
+- (**Downloader**) Add option to split tall images
 
 ### Changed
 - (**GraphQL**) Count the nodes of list fields in SQL when `totalCount` is their only selection

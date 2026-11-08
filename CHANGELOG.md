@@ -55,6 +55,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - (**WebView**) Pass `evaluateJavascript` results to extensions serialized as JSON, like Android
 - (**WebView**) Report dead renderers through `onRenderProcessGone` instead of leaving extensions waiting
 - (**WebView**) Fix `evaluateJavascript` not returning the result of multi-line scripts
+- (**Downloader**) Convert the pages a live read already cached when downloading a chapter
+- (**Downloader**) Fix live reads and downloads of a chapter racing on the page cache
 
 ### Deprecated
 - (**Authentication**) `BASIC_AUTH` is now deprecated

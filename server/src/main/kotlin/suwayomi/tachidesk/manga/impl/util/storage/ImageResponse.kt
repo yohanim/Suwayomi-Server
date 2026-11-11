@@ -14,6 +14,9 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.io.InputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import kotlin.coroutines.cancellation.CancellationException
 
 object ImageResponse {
     private fun pathToInputStream(path: String): InputStream = FileInputStream(path).buffered()
@@ -61,10 +64,14 @@ object ImageResponse {
      *
      * @param cacheSavePath where to save the cached image. Caller should decide to use perma cache or temp cache (OS temp dir)
      * @param fileName what the saved cache file should be named
+     * @param staleBefore a cached file last modified before this epoch millis is fetched again; it is only replaced when the new image differs
+     * @param onImageChanged called when a stale cached file was replaced by a different image
      */
     suspend fun getImageResponse(
         saveDir: String,
         fileName: String,
+        staleBefore: Long = 0,
+        onImageChanged: () -> Unit = {},
         fetcher: suspend () -> Response,
     ): Pair<InputStream, String> =
         PageCacheCoordinator.withPageLock(saveDir, fileName) {
@@ -75,8 +82,20 @@ object ImageResponse {
             val filePath = "$saveDir/$fileName"
 
             // in case the cached file is a ".tmp" file something went wrong with the previous download, and it has to be downloaded again
-            if (cachedFile != null && !cachedFile.endsWith(".tmp")) {
-                return@withPageLock getCachedImageResponse(cachedFile, filePath)
+            val reusableCachedFile = cachedFile?.takeUnless { it.endsWith(".tmp") }
+
+            if (reusableCachedFile != null) {
+                if (File(reusableCachedFile).lastModified() >= staleBefore) {
+                    return@withPageLock getCachedImageResponse(reusableCachedFile, filePath)
+                }
+
+                return@withPageLock try {
+                    refreshCachedImage(reusableCachedFile, filePath, fetcher, onImageChanged)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    getCachedImageResponse(reusableCachedFile, filePath)
+                }
             }
 
             // Serve without caching: the download's split parts already hold this page
@@ -114,6 +133,46 @@ object ImageResponse {
             }
         }
 
+    private suspend fun refreshCachedImage(
+        cachedFile: String,
+        filePath: String,
+        fetcher: suspend () -> Response,
+        onImageChanged: () -> Unit,
+    ): Pair<InputStream, String> {
+        val response = fetcher()
+
+        try {
+            if (response.code != 200) {
+                throw Exception("request error! ${response.code}")
+            }
+
+            val newImage = response.body.bytes()
+            val currentImage = File(cachedFile)
+
+            if (currentImage.readBytes().contentEquals(newImage)) {
+                currentImage.setLastModified(System.currentTimeMillis())
+                return getCachedImageResponse(cachedFile, filePath)
+            }
+
+            val (actualSavePath, imageType) =
+                saveImage(
+                    filePath,
+                    newImage.inputStream(),
+                    response.header("Content-Type"),
+                )
+            if (actualSavePath != cachedFile) {
+                currentImage.delete()
+            }
+            onImageChanged()
+            return pathToInputStream(actualSavePath) to imageType
+        } catch (e: IOException) {
+            File("$filePath.tmp").delete()
+            throw e
+        } finally {
+            response.closeQuietly()
+        }
+    }
+
     /** Save image safely */
     fun saveImage(
         filePath: String,
@@ -138,7 +197,8 @@ object ImageResponse {
 
         val actualSavePath = "$filePath.$extension"
 
-        tmpSaveFile.renameTo(File(actualSavePath))
+        // a refreshed cover replaces the previous file, which File.renameTo cannot do on Windows
+        Files.move(tmpSaveFile.toPath(), File(actualSavePath).toPath(), StandardCopyOption.REPLACE_EXISTING)
         return Pair(actualSavePath, imageType?.mime ?: mimeType ?: "image/jpeg")
     }
 

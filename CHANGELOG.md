@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - (**API**) Send an ETag with manga thumbnails so clients revalidating an expired cover get a 304 instead of the whole image
+- (**API**) Find cached covers and pages by their usual extensions instead of listing their whole directory for each image
 - (**GraphQL**) Count the nodes of list fields in SQL when `totalCount` is their only selection
 - (**GraphQL**) Find manga with duplicate chapter numbers with one group per manga instead of one per chapter number
 - (**GraphQL**) Find the chapters of the chapter-per-manga data loaders in SQL instead of in memory
